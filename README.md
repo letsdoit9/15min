@@ -101,15 +101,36 @@ Output terminal me dikhega, aur `output/screener_log.csv` me bhi save hoga.
    11:00 etc. par different opening range windows check karne ke liye
    (iske liye config me thoda change karna hoga — bata dena)
 
+## Training Data Banana (Auto-Labeling)
+
+`output/screener_log.csv` me sirf features hain, "result" (breakout successful raha ya
+fake) nahi. Ye label khud nikalne ke liye `label_training_data.py` script hai:
+
+```
+python label_training_data.py
+```
+
+Ye kya karta hai:
+
+- `screener_log.csv` ki **purani** (aaj se pehle ki) `BREAKOUT` rows uthata hai
+- Har ek ke liye Upstox se us din ka baaki candle data fetch karta hai
+- Entry, stoploss, target (config.py ke `TARGET_RISK_REWARD_RATIO` se) set karke dekhta
+  hai target pehle hit hua ya stoploss
+- Result `output/training_data.csv` me save karta hai — `actual_result` column
+  (1 = target hit / success, 0 = stoploss hit ya din khatam bina hit ke)
+
+Roz (ya jab bhi chaho) dobara chala sakte ho — pehle se labeled rows dobara skip ho
+jaati hain, sirf naye add hote hain.
+
+⚠️ Isse chalane ke liye bhi taaza access token chahiye — pehle `python get_access_token.py`
+chala lena.
+
 ## Agla Step: ML Model
 
-Jab `output/screener_log.csv` me 1500-2000+ rows ho jaayein (matlab kaafi breakout events
-record ho chuke hon), tab hum:
+Jab `output/training_data.csv` me 1500-2000+ labeled rows ho jaayein, tab hum:
 
-1. Us CSV me ek column add karenge — "actual_result" (kya breakout successful raha ya fake)
-   — ye tumhe manually ya price check karke bharna hoga shuru me
-2. Us labeled data pe XGBoost model train karenge
-3. Rule-based confidence score ko ML probability se replace karenge
+1. Us labeled data pe XGBoost model train karenge
+2. Rule-based confidence score ko ML probability se replace karenge
 
 Jab ready ho, bata dena — main agla phase bana dunga.
 
