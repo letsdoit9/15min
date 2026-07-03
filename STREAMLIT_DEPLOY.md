@@ -63,35 +63,28 @@ Ye sirf ek baar karna hai (jab tak Nifty50 composition badle na, jo saal me 1-2 
 2-3 minute me app deploy ho jayega aur tumhe ek URL milega jaisa:
 `https://your-app-name.streamlit.app`
 
-**Ye URL hi tumhara "redirect URI" banega — isse yaad rakho.**
+## Step 5 (Optional): Access Token Ko Secrets Me Save Karna
 
-## Step 5: Secrets Set Karo (API Key Safely Store Karna)
+Ye app ab sirf **access token** maangta hai (koi API Key/Secret/Redirect URI ki zarurat nahi).
+Roz naya token app ke sidebar/Step 1 box me paste kar sakte ho — ye default tareeka hai.
 
-Deploy hone ke baad:
+Agar chaho to token ko Streamlit Secrets me bhi daal sakte ho taaki har baar paste na karna pade
+(lekin token roz expire hota hai, isliye ye field bhi roz manually update karni padegi):
 
 1. App ke dashboard me **"Settings"** (⚙️) → **"Secrets"**
-2. Yaha paste karo (apni actual values ke saath):
+2. Yaha paste karo:
 
 ```toml
-UPSTOX_API_KEY = "your_api_key_here"
-UPSTOX_API_SECRET = "your_api_secret_here"
-UPSTOX_REDIRECT_URI = "https://your-app-name.streamlit.app"
+UPSTOX_ACCESS_TOKEN = "your_access_token_here"
 ```
 
 3. Save karo — app automatically restart ho jayega
 
-## Step 6: Upstox App Me Redirect URI Update Karo
-
-1. https://account.upstox.com/developer/apps pe jaao
-2. Apna app kholo, **Redirect URI** ko update karo — wahi URL daalo jo Step 4 me mila
-   (`https://your-app-name.streamlit.app`)
-3. Save karo
-
-## Step 7: Use Karo!
+## Step 6: Use Karo!
 
 1. Apna app URL browser me kholo: `https://your-app-name.streamlit.app`
-2. **"Upstox se Login Karo"** button click karo
-3. Upstox login karo → automatically wapas apne app pe aa jaoge, logged in
+2. Apne computer par `python get_access_token.py` chala ke roz ka fresh access token nikaalo
+3. Wo token app ke **Step 1** box me paste karo
 4. Watchlist check/edit karo
 5. 9:35 AM ke baad **"Run Screener Now"** click karo
 6. Results dekho, phir **"Download CSV"** click karke apne laptop me ek folder me save kar lo
