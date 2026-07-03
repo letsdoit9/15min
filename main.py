@@ -15,7 +15,7 @@ from datetime import datetime
 import pandas as pd
 
 import config
-from upstox_client import get_intraday_candles
+from upstox_client import get_candles
 from screener import evaluate_stock
 
 
@@ -25,7 +25,7 @@ def run_screener():
 
     for symbol, instrument_key in config.WATCHLIST.items():
         try:
-            df = get_intraday_candles(
+            df = get_candles(
                 instrument_key,
                 unit=config.CANDLE_INTERVAL_UNIT,
                 interval=config.CANDLE_INTERVAL_VALUE,
