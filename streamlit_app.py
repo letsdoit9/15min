@@ -13,7 +13,7 @@ import requests
 from datetime import datetime
 
 import config
-from upstox_client import get_intraday_candles
+from upstox_client import get_candles, get_historical_candles
 from screener import evaluate_stock
 
 st.set_page_config(page_title="ORB Screener", page_icon="📊", layout="wide")
@@ -52,13 +52,6 @@ with st.sidebar:
         )
     else:
         st.success("Redirect URI: secrets se loaded ✅")
-
-    st.divider()
-    st.caption("Ya seedha access token paste karo (agar already le chuke ho)")
-    manual_token = st.text_input("Access Token", type="password", key="manual_token_input")
-    if st.button("✅ Ye Token Use Karo") and manual_token:
-        st.session_state.access_token = manual_token.strip()
-        st.rerun()
 
     st.divider()
     if st.session_state.get("access_token"):
@@ -137,6 +130,19 @@ st.divider()
 st.subheader("Step 3: Screener Chalao")
 st.caption("9:35 AM ke baad chalao — jab 4th candle (9:30-9:35) complete ho chuki ho")
 
+test_mode = st.checkbox(
+    "🧪 Test Mode — purani date se test karo (market band hone par bhi try karne ke liye)"
+)
+test_date = None
+if test_mode:
+    test_date = st.date_input(
+        "Kis purani trading date ka data mangwana hai?",
+        help="2-3 din purani koi normal trading day (Mon-Fri) ki date daalo, "
+             "taaki Upstox ka data poora process ho chuka ho.",
+    )
+    st.caption("⚠️ Ye sirf pipeline test karne ke liye hai — live signal nahi hoga, "
+               "purane din ka result dikhega.")
+
 if "log_df" not in st.session_state:
     st.session_state.log_df = pd.DataFrame()
 
@@ -146,7 +152,18 @@ if st.button("🔍 Run Screener Now", disabled=run_disabled, type="primary"):
     progress = st.progress(0, text="Screening chal raha hai...")
     for i, (symbol, instrument_key) in enumerate(watchlist.items()):
         try:
-            df = get_intraday_candles(instrument_key, access_token=st.session_state.access_token)
+            if test_mode and test_date:
+                date_str = test_date.strftime("%Y-%m-%d")
+                df = get_historical_candles(
+                    instrument_key,
+                    unit=config.CANDLE_INTERVAL_UNIT,
+                    interval=config.CANDLE_INTERVAL_VALUE,
+                    to_date=date_str,
+                    from_date=date_str,
+                    access_token=st.session_state.access_token,
+                )
+            else:
+                df = get_candles(instrument_key, access_token=st.session_state.access_token)
             result = evaluate_stock(symbol, df)
         except Exception as e:
             result = {"symbol": symbol, "status": "ERROR", "signal": None, "confidence": 0, "error": str(e)}
@@ -155,7 +172,7 @@ if st.button("🔍 Run Screener Now", disabled=run_disabled, type="primary"):
     progress.empty()
 
     result_df = pd.DataFrame(rows)
-    result_df["date"] = datetime.now().strftime("%Y-%m-%d")
+    result_df["date"] = test_date.strftime("%Y-%m-%d") if (test_mode and test_date) else datetime.now().strftime("%Y-%m-%d")
     result_df["logged_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     st.session_state.log_df = pd.concat([st.session_state.log_df, result_df], ignore_index=True)
