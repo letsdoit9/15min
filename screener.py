@@ -1,184 +1,183 @@
 """
-SCREENER
-========
-Core logic: opening range nikalna, breakout detect karna, aur rule-based
-confidence score dena (abhi ML nahi hai - pehle isse data collect hoga).
+STREAMLIT APP
+=============
+Ye woh file hai jo GitHub + Streamlit Cloud pe deploy hogi.
+Isse koi bhi browser se access kar sakta hai, laptop me kuch install nahi karna.
+
+Setup instructions STREAMLIT_DEPLOY.md file me hai - wahi follow karo.
 """
 
+import streamlit as st
 import pandas as pd
-from indicators import add_all_indicators
+from datetime import datetime
+
 import config
+from upstox_client import get_candles, get_historical_candles
+from screener import evaluate_stock
+
+st.set_page_config(page_title="ORB Screener", page_icon="📊", layout="wide")
+st.title("📊 Opening Range Breakout Screener")
+st.caption("Rule-based screener — pehli 3 candles ka range, 4th candle pe breakout check")
 
 
-def get_opening_range(df: pd.DataFrame):
-    """
-    Pehli N candles (config.OPENING_RANGE_CANDLES) ka high/low nikalta hai.
-    Returns: (range_high, range_low, range_df) ya (None, None, None) agar data kam hai
-    """
-    n = config.OPENING_RANGE_CANDLES
-    if len(df) < n:
-        return None, None, None
-
-    range_df = df.iloc[:n]
-    range_high = range_df["high"].max()
-    range_low = range_df["low"].min()
-    return range_high, range_low, range_df
+# ---------------------------------------------------------
+# Access Token: pehle Streamlit "Secrets" se try karo, warna sidebar me manually paste karo
+# ---------------------------------------------------------
+def get_secret(key, default=""):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return default
 
 
-def evaluate_stock(symbol: str, df: pd.DataFrame) -> dict:
-    """
-    Ek stock ke liye poora evaluation karta hai.
-    df: aaj ki 5-min candles (ascending time order me)
+secret_access_token = get_secret("UPSTOX_ACCESS_TOKEN")
 
-    Returns dict jisme signal, confidence, aur saare raw features hain
-    (ye dict hi future me CSV row / ML training row banega).
-    """
-    result = {
-        "symbol": symbol,
-        "status": None,       # NOT_READY / RANGE_TOO_SMALL / RANGE_TOO_WIDE / NO_BREAKOUT / BREAKOUT
-        "signal": None,       # BULLISH / BEARISH / NONE
-        "confidence": 0,
-        "volume_score": None,
-        "body_score": None,
-        "trend_score": None,
-        "rsi_score": None,
-        "label": None,
-        "range_high": None,
-        "range_low": None,
-        "range_pct": None,
-        "breakout_candle_volume": None,
-        "volume_ratio": None,
-        "body_pct": None,
-        "upper_wick_pct": None,
-        "lower_wick_pct": None,
-        "close_above_vwap": None,
-        "ema20_above_ema50": None,
-        "rsi": None,
-        "atr": None,
-        "breakout_time": None,
-    }
+if "access_token" not in st.session_state:
+    st.session_state.access_token = secret_access_token or None
 
-    check_idx = config.BREAKOUT_CHECK_CANDLE_INDEX  # 4th candle = index 3
-
-    if len(df) <= check_idx:
-        result["status"] = "NOT_READY"   # abhi 9:35 nahi hui / itni candles nahi aayi
-        return result
-
-    range_high, range_low, range_df = get_opening_range(df)
-    if range_high is None:
-        result["status"] = "NOT_READY"
-        return result
-
-    df = add_all_indicators(df)
-
-    range_size = range_high - range_low
-    ref_price = range_df["close"].iloc[-1]
-    range_pct = (range_size / ref_price) * 100 if ref_price else 0
-
-    result["range_high"] = round(range_high, 2)
-    result["range_low"] = round(range_low, 2)
-    result["range_pct"] = round(range_pct, 2)
-
-    if range_pct < config.MIN_RANGE_PERCENT:
-        result["status"] = "RANGE_TOO_SMALL"
-        return result
-    if range_pct > config.MAX_RANGE_PERCENT:
-        result["status"] = "RANGE_TOO_WIDE"
-        return result
-
-    breakout_candle = df.iloc[check_idx]
-    avg_range_volume = range_df["volume"].mean()
-
-    body = abs(breakout_candle["close"] - breakout_candle["open"])
-    candle_range = breakout_candle["high"] - breakout_candle["low"]
-    body_pct = (body / candle_range * 100) if candle_range else 0
-
-    upper_wick = breakout_candle["high"] - max(breakout_candle["open"], breakout_candle["close"])
-    lower_wick = min(breakout_candle["open"], breakout_candle["close"]) - breakout_candle["low"]
-    upper_wick_pct = (upper_wick / candle_range * 100) if candle_range else 0
-    lower_wick_pct = (lower_wick / candle_range * 100) if candle_range else 0
-
-    volume_ratio = (breakout_candle["volume"] / avg_range_volume) if avg_range_volume else 0
-
-    result.update({
-        "breakout_candle_volume": int(breakout_candle["volume"]),
-        "volume_ratio": round(volume_ratio, 2),
-        "body_pct": round(body_pct, 1),
-        "upper_wick_pct": round(upper_wick_pct, 1),
-        "lower_wick_pct": round(lower_wick_pct, 1),
-        "close_above_vwap": bool(breakout_candle["close"] > breakout_candle["vwap"]),
-        "ema20_above_ema50": bool(breakout_candle["ema20"] > breakout_candle["ema50"]),
-        "rsi": round(breakout_candle["rsi"], 1),
-        "atr": round(breakout_candle["atr"], 2),
-        "breakout_time": str(breakout_candle["timestamp"]),
-    })
-
-    # Direction decide karo
-    direction = None
-    if breakout_candle["close"] > range_high:
-        direction = "BULLISH"
-    elif breakout_candle["close"] < range_low:
-        direction = "BEARISH"
-
-    if direction is None:
-        result["status"] = "NO_BREAKOUT"
-        result["signal"] = "NONE"
-        return result
-
-    result["status"] = "BREAKOUT"
-    result["signal"] = direction
-
-    # ---- Rule-based WEIGHTED CONTINUOUS confidence score (0-100) ----
-    # Hard thresholds ki jagah proportional/continuous scoring - realistic hai
-    # kyunki market me "1.29x volume" aur "1.30x volume" me utna fark nahi hota
-    # jitna binary scoring dikhata tha.
-
-    # 1. Volume Score (30 pts) - proportional, koi hard cutoff nahi
-    volume_score = min(30, (volume_ratio / config.MIN_VOLUME_RATIO) * 30)
-
-    # 2. Candle Strength Score (25 pts) - body dominance (0.0 to 1.0 ka ratio)
-    body_ratio = body / candle_range if candle_range else 0
-    body_score = body_ratio * 25
-
-    # 3. Trend Score (25 pts) - EMA aur VWAP alignment ko smooth score me convert
-    # ASSUMPTION: price-based farak ko % me normalize kiya hai (stock-price-independent
-    # banane ke liye), aur +/-1% ke range ko 0-25 scale pe map kiya hai.
-    # Agar ye range zyada/kam sensitive lage to config.py me TREND_NORMALIZE_RANGE_PCT badal dena.
-    close_price = breakout_candle["close"]
-    ema_diff_pct = ((breakout_candle["ema20"] - breakout_candle["ema50"]) / close_price * 100) if close_price else 0
-    vwap_diff_pct = ((close_price - breakout_candle["vwap"]) / close_price * 100) if close_price else 0
-    trend_raw = ema_diff_pct + vwap_diff_pct  # positive = bullish alignment
-
-    if direction == "BEARISH":
-        trend_raw = -trend_raw  # bearish breakout ke liye "downward alignment" hi achha signal hai
-
-    trend_range = config.TREND_NORMALIZE_RANGE_PCT
-    trend_raw_clamped = max(-trend_range, min(trend_range, trend_raw))
-    trend_score = ((trend_raw_clamped + trend_range) / (2 * trend_range)) * 25
-
-    # 4. RSI Score (20 pts) - continuous momentum scaling (binary threshold nahi)
-    # Bullish: RSI 40->0, RSI 60->20 (linear). Bearish: mirror - RSI 60->0, RSI 40->20
-    rsi_val = result["rsi"]
-    if direction == "BULLISH":
-        rsi_score = 20 * (rsi_val - 40) / 20
+with st.sidebar:
+    st.header("🔑 Upstox Access Token")
+    if secret_access_token:
+        st.success("Access Token: secrets se loaded ✅")
     else:
-        rsi_score = 20 * (60 - rsi_val) / 20
-    rsi_score = max(0, min(20, rsi_score))
+        st.caption(
+            "Apne computer par `python get_access_token.py` chalao, "
+            "wahan se mila access token neeche (Step 1) me paste karo."
+        )
 
-    total_score = volume_score + body_score + trend_score + rsi_score
+    st.divider()
+    if st.session_state.get("access_token"):
+        if st.button("🔓 Logout"):
+            st.session_state.access_token = None
+            st.rerun()
 
-    result["volume_score"] = round(volume_score, 1)
-    result["body_score"] = round(body_score, 1)
-    result["trend_score"] = round(trend_score, 1)
-    result["rsi_score"] = round(rsi_score, 1)
-    result["confidence"] = round(total_score, 1)
 
-    # Label bucket (jaisa specify kiya tha)
-    if total_score >= 80:
-        result["label"] = "Strong Breakout"
-    elif total_score >= 60:
-        result["label"] = "Valid Setup"
+# ---------------------------------------------------------
+# Access token daalo - koi OAuth login flow nahi, seedha token paste karo
+# ---------------------------------------------------------
+st.subheader("Step 1: Access Token Daalo (roz karna hai — token daily expire hota hai)")
+
+if st.session_state.access_token:
+    st.success("✅ Access token set hai — is session ke liye active hai.")
+else:
+    token_input = st.text_input(
+        "Apna Upstox Access Token yaha paste karo",
+        type="password",
+        help="Ye token apne computer par `python get_access_token.py` chalake milta hai "
+             "(ya isi ka output .env me se copy karo).",
+    )
+    if token_input:
+        st.session_state.access_token = token_input.strip()
+        st.rerun()
+
+st.divider()
+
+
+# ---------------------------------------------------------
+# Watchlist editor
+# ---------------------------------------------------------
+st.subheader("Step 2: Watchlist")
+default_watchlist = "\n".join(f"{k}:{v}" for k, v in config.WATCHLIST.items())
+watchlist_text = st.text_area(
+    "Format: SYMBOL:instrument_key (ek line me ek stock)",
+    value=default_watchlist,
+    height=150,
+)
+watchlist = {}
+for line in watchlist_text.strip().splitlines():
+    if ":" in line:
+        sym, key = line.split(":", 1)
+        watchlist[sym.strip()] = key.strip()
+
+st.divider()
+
+
+# ---------------------------------------------------------
+# Run screener
+# ---------------------------------------------------------
+st.subheader("Step 3: Screener Chalao")
+st.caption("9:35 AM ke baad chalao — jab 4th candle (9:30-9:35) complete ho chuki ho")
+
+test_mode = st.checkbox(
+    "🧪 Test Mode — purani date se test karo (market band hone par bhi try karne ke liye)"
+)
+test_date = None
+if test_mode:
+    test_date = st.date_input(
+        "Kis purani trading date ka data mangwana hai?",
+        help="2-3 din purani koi normal trading day (Mon-Fri) ki date daalo, "
+             "taaki Upstox ka data poora process ho chuka ho.",
+    )
+    st.caption("⚠️ Ye sirf pipeline test karne ke liye hai — live signal nahi hoga, "
+               "purane din ka result dikhega.")
+
+if "log_df" not in st.session_state:
+    st.session_state.log_df = pd.DataFrame()
+
+run_disabled = not st.session_state.access_token or not watchlist
+if st.button("🔍 Run Screener Now", disabled=run_disabled, type="primary"):
+    rows = []
+    progress = st.progress(0, text="Screening chal raha hai...")
+    for i, (symbol, instrument_key) in enumerate(watchlist.items()):
+        try:
+            if test_mode and test_date:
+                date_str = test_date.strftime("%Y-%m-%d")
+                df = get_historical_candles(
+                    instrument_key,
+                    unit=config.CANDLE_INTERVAL_UNIT,
+                    interval=config.CANDLE_INTERVAL_VALUE,
+                    to_date=date_str,
+                    from_date=date_str,
+                    access_token=st.session_state.access_token,
+                )
+            else:
+                df = get_candles(instrument_key, access_token=st.session_state.access_token)
+            result = evaluate_stock(symbol, df)
+        except Exception as e:
+            result = {"symbol": symbol, "status": "ERROR", "signal": None, "confidence": 0, "error": str(e)}
+        rows.append(result)
+        progress.progress((i + 1) / len(watchlist), text=f"{symbol} done")
+    progress.empty()
+
+    result_df = pd.DataFrame(rows)
+    result_df["date"] = test_date.strftime("%Y-%m-%d") if (test_mode and test_date) else datetime.now().strftime("%Y-%m-%d")
+    result_df["logged_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    st.session_state.log_df = pd.concat([st.session_state.log_df, result_df], ignore_index=True)
+
+    breakouts = result_df[result_df["status"] == "BREAKOUT"].sort_values("confidence", ascending=False)
+    if not breakouts.empty:
+        st.success(f"📈 {len(breakouts)} breakout(s) mile!")
+        display_cols = ["symbol", "signal", "confidence", "label", "volume_score", "body_score",
+                         "trend_score", "rsi_score", "range_low", "range_high", "volume_ratio", "body_pct"]
+        display_cols = [c for c in display_cols if c in breakouts.columns]
+        st.dataframe(breakouts[display_cols], use_container_width=True)
     else:
-        result["label"] = "Weak / Avoid"
+        st.info("Abhi tak koi breakout nahi mila.")
 
-    return result
+    with st.expander("Saare stocks ka poora status dekho"):
+        st.dataframe(result_df, use_container_width=True)
+
+if run_disabled and not st.session_state.access_token:
+    st.info("⬆️ Screener chalane ke liye pehle login karo.")
+
+
+# ---------------------------------------------------------
+# Download CSV - user isko roz manually save karega, yehi future ML data hai
+# ---------------------------------------------------------
+if not st.session_state.log_df.empty:
+    st.divider()
+    st.subheader("Step 4: Data Save Karo")
+    st.caption(
+        "⚠️ Streamlit Cloud pe data persist NAHI hota (app restart hone par sab data khatam ho jaata hai). "
+        "Isliye har baar screener chalane ke baad ye CSV download karke apne laptop me ek folder me save karte jaana. "
+        "Ye files hi future me ML model training ke liye use hongi."
+    )
+    csv = st.session_state.log_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download CSV (is session ka data)",
+        data=csv,
+        file_name=f"screener_log_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv",
+    )
+    st.dataframe(st.session_state.log_df, use_container_width=True)
