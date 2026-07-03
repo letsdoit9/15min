@@ -9,7 +9,6 @@ Setup instructions STREAMLIT_DEPLOY.md file me hai - wahi follow karo.
 
 import streamlit as st
 import pandas as pd
-import requests
 from datetime import datetime
 
 import config
@@ -22,7 +21,7 @@ st.caption("Rule-based screener — pehli 3 candles ka range, 4th candle pe brea
 
 
 # ---------------------------------------------------------
-# Credentials: pehle Streamlit "Secrets" se try karo, warna sidebar me manually daalo
+# Access Token: pehle Streamlit "Secrets" se try karo, warna sidebar me manually paste karo
 # ---------------------------------------------------------
 def get_secret(key, default=""):
     try:
@@ -31,27 +30,20 @@ def get_secret(key, default=""):
         return default
 
 
-api_key = get_secret("UPSTOX_API_KEY")
-api_secret = get_secret("UPSTOX_API_SECRET")
-redirect_uri = get_secret("UPSTOX_REDIRECT_URI")
+secret_access_token = get_secret("UPSTOX_ACCESS_TOKEN")
+
+if "access_token" not in st.session_state:
+    st.session_state.access_token = secret_access_token or None
 
 with st.sidebar:
-    st.header("⚙️ Upstox Credentials")
-    if not api_key:
-        api_key = st.text_input("API Key", type="password")
+    st.header("🔑 Upstox Access Token")
+    if secret_access_token:
+        st.success("Access Token: secrets se loaded ✅")
     else:
-        st.success("API Key: secrets se loaded ✅")
-    if not api_secret:
-        api_secret = st.text_input("API Secret", type="password")
-    else:
-        st.success("API Secret: secrets se loaded ✅")
-    if not redirect_uri:
-        redirect_uri = st.text_input(
-            "Redirect URI",
-            help="Yehi is app ka URL hona chahiye, Upstox app settings me bhi same daalna",
+        st.caption(
+            "Apne computer par `python get_access_token.py` chalao, "
+            "wahan se mila access token neeche (Step 1) me paste karo."
         )
-    else:
-        st.success("Redirect URI: secrets se loaded ✅")
 
     st.divider()
     if st.session_state.get("access_token"):
@@ -61,46 +53,22 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------
-# Login flow (OAuth) - Upstox login ke baad is hi app pe ?code=XXXX ke saath wapas aata hai
+# Access token daalo - koi OAuth login flow nahi, seedha token paste karo
 # ---------------------------------------------------------
-if "access_token" not in st.session_state:
-    st.session_state.access_token = None
-
-query_params = st.query_params
-auth_code = query_params.get("code")
-
-st.subheader("Step 1: Login (roz karna hai — token daily expire hota hai)")
+st.subheader("Step 1: Access Token Daalo (roz karna hai — token daily expire hota hai)")
 
 if st.session_state.access_token:
-    st.success("✅ Logged in — is session ke liye access token active hai.")
-elif auth_code and api_key and api_secret and redirect_uri:
-    token_url = "https://api.upstox.com/v2/login/authorization/token"
-    payload = {
-        "code": auth_code,
-        "client_id": api_key,
-        "client_secret": api_secret,
-        "redirect_uri": redirect_uri,
-        "grant_type": "authorization_code",
-    }
-    headers = {"accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
-    resp = requests.post(token_url, data=payload, headers=headers)
-
-    if resp.status_code == 200:
-        st.session_state.access_token = resp.json()["access_token"]
-        st.query_params.clear()
-        st.success("✅ Login successful!")
-        st.rerun()
-    else:
-        st.error(f"Token exchange fail hua: {resp.status_code} - {resp.text}")
-elif api_key and redirect_uri:
-    login_url = (
-        f"https://api.upstox.com/v2/login/authorization/dialog"
-        f"?response_type=code&client_id={api_key}&redirect_uri={redirect_uri}"
-    )
-    st.link_button("👉 Upstox se Login Karo", login_url)
-    st.caption("Login ke baad automatically isi page pe wapas aa jaoge.")
+    st.success("✅ Access token set hai — is session ke liye active hai.")
 else:
-    st.warning("⚠️ Pehle sidebar me API Key, Secret, aur Redirect URI bharo.")
+    token_input = st.text_input(
+        "Apna Upstox Access Token yaha paste karo",
+        type="password",
+        help="Ye token apne computer par `python get_access_token.py` chalake milta hai "
+             "(ya isi ka output .env me se copy karo).",
+    )
+    if token_input:
+        st.session_state.access_token = token_input.strip()
+        st.rerun()
 
 st.divider()
 
