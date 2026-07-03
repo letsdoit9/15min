@@ -54,6 +54,13 @@ with st.sidebar:
         st.success("Redirect URI: secrets se loaded ✅")
 
     st.divider()
+    st.caption("Ya seedha access token paste karo (agar already le chuke ho)")
+    manual_token = st.text_input("Access Token", type="password", key="manual_token_input")
+    if st.button("✅ Ye Token Use Karo") and manual_token:
+        st.session_state.access_token = manual_token.strip()
+        st.rerun()
+
+    st.divider()
     if st.session_state.get("access_token"):
         if st.button("🔓 Logout"):
             st.session_state.access_token = None
