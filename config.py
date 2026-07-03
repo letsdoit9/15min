@@ -543,6 +543,14 @@ OUTPUT_DIR = "output"
 LOG_CSV = "output/screener_log.csv"    # har din ka result yaha append hota rahega -> future ML training data
 
 # ---------------------------------------------------------
+# Auto-labeling (label_training_data.py ke liye)
+# ---------------------------------------------------------
+# Target = entry se stoploss tak ki distance (risk) ka kitna multiple.
+# e.g. 1.5 matlab: risk 10 rupaye hai to target 15 rupaye door rakha jayega.
+TARGET_RISK_REWARD_RATIO = 1.5
+TRAINING_DATA_CSV = "output/training_data.csv"   # labeled data yaha save hoga -> ML training ke liye ready
+
+# ---------------------------------------------------------
 # Telegram alerts (optional - baad me fill karna)
 # ---------------------------------------------------------
 TELEGRAM_BOT_TOKEN = ""
